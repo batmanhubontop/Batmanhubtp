@@ -1,0 +1,956 @@
+-- ============================================================
+-- BATMAN SCRIPT (WEBHOOK NOTIFICATION & CLEAN VERIFICATION)
+-- ============================================================
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+local SAVE_FILE_NAME = "BatmanScript_SavedID.txt"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1547825216879857826/pxf4-imuNsXwJHwCpXqSjYKfJgYY41_n1U06_D_AQYLwlLNOiqBlgS6xxVKc6Ezs7_kF"
+
+local isUnlocked = false
+local lastWebhookSent = 0
+local WEBHOOK_COOLDOWN = 30 -- ⏱️ ดีเลย์ส่งแจ้งเตือน 30 วินาที
+
+-- 📩 ฟังก์ชันส่งแจ้งเตือนเข้า Discord Webhook
+local function SendDiscordWebhook(title, description, color)
+    if not WEBHOOK_URL or WEBHOOK_URL == "" then return end
+    
+    local currentTime = os.time()
+    if currentTime - lastWebhookSent < WEBHOOK_COOLDOWN then
+        return -- ยังไม่ครบ 30 วินาที ข้ามการส่ง
+    end
+    lastWebhookSent = currentTime
+
+    local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+    if not requestFunc then return end
+
+    local data = {
+        ["embeds"] = {{
+            ["title"] = title,
+            ["description"] = description,
+            ["color"] = color or 16711680, -- สีแดง
+            ["footer"] = {
+                ["text"] = "Batman Verification System • " .. os.date("%X")
+            }
+        }}
+    }
+
+    pcall(function()
+        requestFunc({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+end
+
+-- 💾 ฟังก์ชันระบบ Auto-Save
+local function ReadSavedID()
+    if readfile and isfile and isfile(SAVE_FILE_NAME) then
+        local success, result = pcall(function() return readfile(SAVE_FILE_NAME) end)
+        if success and result then
+            return string.match(result, "%d+")
+        end
+    end
+    return nil
+end
+
+local function SaveID(id)
+    if writefile then
+        pcall(function()
+            writefile(SAVE_FILE_NAME, tostring(id))
+        end)
+    end
+end
+
+-- 🔐 ฟังก์ชันตรวจสอบสิทธิ์ (ซ่อนเลข ID ไม่ให้โชว์บน UI)
+local function VerifyAccess(inputId)
+    local cleanInput = string.match(tostring(inputId), "%d+") or ""
+    local myUserId = tostring(LocalPlayer.UserId)
+
+    if cleanInput == "" then
+        return false, "❌ กรุณากรอก User ID ที่ถูกต้อง!"
+    end
+
+    if cleanInput ~= myUserId then
+        -- ส่งแจ้งเตือนไปยัง Discord Webhook (ติด Cooldown 30 วินาที)
+        SendDiscordWebhook(
+            "⚠️ มีการพยายามรันสคริปต์ผิดไอดี",
+            "**ผู้ใช้ในเกม:** " .. LocalPlayer.Name .. " (" .. myUserId .. ")\n**ID ที่กรอก:** " .. cleanInput,
+            16711680
+        )
+        -- คืนค่าข้อความสะอาด โดยไม่มีเลข ID โผล่บนหน้าจอ
+        return false, "❌ User ID ไม่ตรงกับตัวละครนี้!"
+    end
+
+    return true, "✅ ยืนยันไอดีสำเร็จ!", cleanInput
+end
+
+-- 🔄 ตรวจสอบ Auto-Save เมื่อเปิดสคริปต์
+local savedID = ReadSavedID()
+if savedID then
+    local ok, _ = VerifyAccess(savedID)
+    if ok then
+        isUnlocked = true
+    end
+end
+
+-- 🔒 หน้าต่าง UI ตรวจสอบ ID
+if not isUnlocked then
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local keyScreen = Instance.new("ScreenGui")
+    keyScreen.Name = "Batman_KeySystem"
+    keyScreen.ResetOnSpawn = false
+    pcall(function() keyScreen.Parent = CoreGui end)
+    if not keyScreen.Parent then keyScreen.Parent = playerGui end
+
+    local mainFrame = Instance.new("Frame", keyScreen)
+    mainFrame.Size = UDim2.new(0, 360, 0, 190)
+    mainFrame.Position = UDim2.new(0.5, -180, 0.5, -95)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    mainFrame.BorderSizePixel = 0
+
+    local corner = Instance.new("UICorner", mainFrame)
+    corner.CornerRadius = UDim.new(0, 12)
+
+    local stroke = Instance.new("UIStroke", mainFrame)
+    stroke.Color = Color3.fromRGB(220, 20, 60)
+    stroke.Thickness = 2
+
+    local title = Instance.new("TextLabel", mainFrame)
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.Position = UDim2.new(0, 0, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "🦇 BATMAN VERIFICATION 🦇"
+    title.Font = Enum.Font.FredokaOne
+    title.TextSize = 18
+    title.TextColor3 = Color3.fromRGB(255, 215, 0)
+
+    local idBox = Instance.new("TextBox", mainFrame)
+    idBox.Size = UDim2.new(0, 280, 0, 40)
+    idBox.Position = UDim2.new(0.5, -140, 0, 55)
+    idBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    idBox.Text = ""
+    idBox.PlaceholderText = "กรอก User ID ตัวละครของคุณที่นี่..."
+    idBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    idBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    idBox.Font = Enum.Font.SourceSansBold
+    idBox.TextSize = 16
+    Instance.new("UICorner", idBox).CornerRadius = UDim.new(0, 8)
+
+    local statusLabel = Instance.new("TextLabel", mainFrame)
+    statusLabel.Size = UDim2.new(1, -20, 0, 20)
+    statusLabel.Position = UDim2.new(0, 10, 0, 100)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = ""
+    statusLabel.Font = Enum.Font.SourceSansBold
+    statusLabel.TextSize = 13
+    statusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+
+    local submitBtn = Instance.new("TextButton", mainFrame)
+    submitBtn.Size = UDim2.new(0, 280, 0, 35)
+    submitBtn.Position = UDim2.new(0.5, -140, 0, 130)
+    submitBtn.BackgroundColor3 = Color3.fromRGB(220, 20, 60)
+    submitBtn.Text = "🔓 ยืนยันเข้าใช้งาน"
+    submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    submitBtn.Font = Enum.Font.FredokaOne
+    submitBtn.TextSize = 16
+    Instance.new("UICorner", submitBtn).CornerRadius = UDim.new(0, 8)
+
+    submitBtn.MouseButton1Click:Connect(function()
+        local inputId = idBox.Text
+        local ok, message, cleanedID = VerifyAccess(inputId)
+
+        if ok then
+            SaveID(cleanedID)
+            isUnlocked = true
+            statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            statusLabel.Text = message
+            task.wait(0.5)
+            keyScreen:Destroy()
+        else
+            statusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+            statusLabel.Text = message
+        end
+    end)
+
+    repeat task.wait(0.5) until isUnlocked
+end
+
+-- ============================================================
+-- 🛡️ PART 0: ANTI GUMMY BEAR / ANTI BLOCKTOOLS
+-- ============================================================
+local lp = Players.LocalPlayer
+RunService.Heartbeat:Connect(function()
+    if lp and lp.Character then
+        for _, inst in ipairs({lp, lp.Character}) do
+            if inst:GetAttribute("BlockTools") == true then 
+                inst:SetAttribute("BlockTools", false) 
+            end
+        end
+    end
+end)
+
+-- ============================================================
+-- 🎬 PART 1: INTRO EFFECT
+-- ============================================================
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+if playerGui then
+    local screenGui = Instance.new('ScreenGui')
+    screenGui.IgnoreGuiInset = true
+    screenGui.Parent = playerGui
+
+    local imageLabel = Instance.new('ImageLabel')
+    imageLabel.Parent = screenGui
+    imageLabel.Size = UDim2.new(0, 0, 0, 0)
+    imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    imageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+    imageLabel.BackgroundTransparency = 1
+    imageLabel.Image = 'rbxassetid://13879097036'
+    imageLabel.ScaleType = Enum.ScaleType.Fit
+    imageLabel.BorderSizePixel = 0
+    imageLabel.ImageTransparency = 0
+
+    local sound = Instance.new('Sound')
+    sound.SoundId = 'rbxassetid://1592708450'
+    sound.Parent = LocalPlayer.Character or LocalPlayer:WaitForChild('Character', 5)
+    pcall(function() sound:Play() end)
+
+    local u1, u2, u3, u4 = 1, 10, 0.7, 0.5
+
+    task.spawn(function()
+        local v5 = tick()
+        while tick() - v5 < u1 do
+            imageLabel.Rotation = imageLabel.Rotation + u2
+            task.wait(0.01)
+        end
+    end)
+
+    task.spawn(function()
+        local v6 = tick()
+        while tick() - v6 < u3 do
+            local v7 = (tick() - v6) / u3 * 1.2
+            imageLabel.Size = UDim2.new(v7, 0, v7, 0)
+            if u4 <= v7 then
+                local v8 = (v7 - u4) / (1.2 - u4)
+                imageLabel.ImageTransparency = math.clamp(v8, 0, 1)
+            end
+            task.wait(0.01)
+        end
+        imageLabel.Size = UDim2.new(1.2, 0, 1.2, 0)
+        imageLabel.ImageTransparency = 1
+    end)
+
+    task.delay(u1, function()
+        screenGui:Destroy()
+    end)
+
+    local screenGui2 = Instance.new('ScreenGui')
+    screenGui2.IgnoreGuiInset = true 
+    screenGui2.ResetOnSpawn = false
+    screenGui2.Parent = playerGui
+
+    local frame = Instance.new('Frame')
+    frame.Parent = screenGui2
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    frame.BackgroundTransparency = 0.4
+    frame.ZIndex = 0
+
+    local uIGradient = Instance.new('UIGradient')
+    uIGradient.Color = ColorSequence.new({ 
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 60, 60)), 
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 0, 0)), 
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 60, 60)) 
+    })
+    uIGradient.Rotation = 0
+    uIGradient.Parent = frame
+
+    task.spawn(function()
+        while frame and frame.Parent do
+            uIGradient.Rotation = (uIGradient.Rotation + 1) % 360
+            task.wait(0.02)
+        end
+    end)
+
+    local imageLabel2 = Instance.new('ImageLabel')
+    imageLabel2.Parent = screenGui2
+    imageLabel2.Size = UDim2.new(0, 0, 0, 0)
+    imageLabel2.Position = UDim2.new(0.5, 0, 0.5, 0)
+    imageLabel2.AnchorPoint = Vector2.new(0.5, 0.5)
+    imageLabel2.BackgroundTransparency = 1
+    imageLabel2.Image = 'rbxassetid://13879097036'
+    imageLabel2.ScaleType = Enum.ScaleType.Fit
+    imageLabel2.BorderSizePixel = 0
+    imageLabel2.ImageTransparency = 0
+
+    local sound2 = Instance.new('Sound')
+    sound2.SoundId = 'rbxassetid://1592708450'
+    sound2.Parent = LocalPlayer.Character or LocalPlayer:WaitForChild('Character', 5)
+    pcall(function() sound2:Play() end)
+
+    local u9, u10, u11, u12, u13, u14 = 4.2, 2, 0, 12, 0.2, 1.5
+
+    task.spawn(function()
+        local v15 = tick()
+        while imageLabel2 and imageLabel2.Parent do
+            if tick() - v15 >= u9 - u14 then
+                u11 = math.max(u11 - u13, 0)
+            else
+                u11 = math.min(u11 + u13, u12)
+            end
+            imageLabel2.Rotation = imageLabel2.Rotation + u11
+            task.wait(0.01)
+        end
+    end)
+
+    task.spawn(function()
+        local v16 = tick()	 	
+        while tick() - v16 < u10 do
+            local v17 = (tick() - v16) / u10
+            imageLabel2.Size = UDim2.new(v17, 0, v17, 0)
+            task.wait(0.01)
+        end
+        if imageLabel2 then imageLabel2.Size = UDim2.new(1, 0, 1, 0) end
+    end)
+
+    task.spawn(function()
+        task.wait(u9 - u14)
+        local u142 = u14
+        local v18 = tick()
+        while tick() - v18 < u142 do
+            local v19 = (tick() - v18) / u142
+            if imageLabel2 then imageLabel2.ImageTransparency = v19 end
+            if frame then frame.BackgroundTransparency = 0.4 + v19 * 0.6 end
+            if uIGradient then uIGradient.Transparency = NumberSequence.new(v19) end
+            task.wait(0.01)
+        end
+    end)
+
+    task.wait(u9)
+    if screenGui2 then screenGui2:Destroy() end
+end
+
+-- ============================================================
+-- 🚀 PART 2: MAIN SCRIPT (BATMAN TP & AUTO TURRET)
+-- ============================================================
+
+local uiLocked = false
+
+pcall(function()
+    for _, v in ipairs(CoreGui:GetChildren()) do
+        if v.Name == "TurretMainMenu" or v.Name == "TurretToggleGear" or v.Name == "HammerCenterBtn" or v.Name == "Batman_TP_UI" or v.Name == "TleEakLa_TP_UI" or v.Name == "SliemOhTop_AnimeUI" then
+            v:Destroy()
+        end
+    end
+    if LocalPlayer:FindFirstChild("PlayerGui") then
+        for _, v in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
+            if v.Name == "Batman_TP_UI" or v.Name == "TleEakLa_TP_UI" or v.Name == "HammerCenterBtn" then
+                v:Destroy()
+            end
+        end
+    end
+end)
+
+local function MakeDraggable(item)
+    local dragging, sPos, iPos = false, nil, nil
+    item.Active = true
+    item.InputBegan:Connect(function(i)
+        if uiLocked then return end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; sPos = i.Position; iPos = item.Position
+            i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and not uiLocked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            item.Position = UDim2.new(iPos.X.Scale, iPos.X.Offset + (i.Position - sPos).X, iPos.Y.Scale, iPos.Y.Offset + (i.Position - sPos).Y)
+        end
+    end)
+end
+
+-- 1. DESTROY TURRET MODULE
+local G = { AutoDestroyTurret = false }
+
+function isEnemyTurret(obj)
+    if not obj or not obj:IsA("BasePart") then return false end
+    local name = obj.Name
+    local nameLower = name:lower()
+    local ownerId = nil
+
+    ownerId = name:match("^Sentry_(%d+)$") or name:match("^sentry_(%d+)$")
+
+    if not ownerId then
+        ownerId = name:match("^CandySentry_(%d+)$")
+            or name:match("^Candy_Sentry_(%d+)$")
+            or name:match("^candy_sentry_(%d+)$")
+            or name:match("^candysentry_(%d+)$")
+            or nameLower:match("^candy[_%-]?sentry_(%d+)$")
+    end
+
+    if not ownerId and nameLower:find("candy") and nameLower:find("sentry") then
+        ownerId = name:match("(%d+)$")
+    end
+
+    if not ownerId then
+        ownerId = name:match("^[Tt]urret_(%d+)$")
+    end
+
+    if not ownerId and nameLower:find("sentry") then
+        ownerId = name:match("(%d+)$")
+    end
+
+    return ownerId ~= nil and tostring(ownerId) ~= tostring(LocalPlayer.UserId)
+end
+
+function setTurretNoClip(turret)
+    if not isEnemyTurret(turret) then return end
+    pcall(function()
+        turret.CanCollide = false
+        turret.Anchored = true
+        turret.AssemblyLinearVelocity = Vector3.zero
+        turret.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
+function getTurretTimeLabel(turret)
+    if not turret or not turret.Parent then return nil end
+    local setupFrame = turret:FindFirstChild("SetupFrame")
+    local mainFrame = setupFrame and setupFrame:FindFirstChild("MainFrame")
+    local timeLabel = mainFrame and mainFrame:FindFirstChild("Time")
+    if timeLabel and timeLabel:IsA("TextLabel") then return timeLabel end
+    for _, d in ipairs(turret:GetDescendants()) do
+        if d:IsA("TextLabel") then
+            local n = d.Name:lower()
+            if n == "time" or n == "timer" or n == "countdown" then
+                return d
+            end
+        end
+    end
+    return nil
+end
+
+function shouldAttackTurret(turret)
+    if LocalPlayer:GetAttribute("Stealing") ~= nil then return false end
+    if not isEnemyTurret(turret) then return false end
+    setTurretNoClip(turret)
+    local timeLabel = getTurretTimeLabel(turret)
+    if timeLabel then
+        local ok, text = pcall(function() return timeLabel.Text end)
+        if not ok then return false end
+        text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if text == "" then return false end
+        if string.find(text, "^%d+%s*[sS]!?$") then return true end
+        if string.find(text, "^%d+$") then return true end
+        return false
+    end
+    return true
+end
+
+local turretAttackBusy = setmetatable({}, { __mode = "k" })
+local turretAttackQueued = setmetatable({}, { __mode = "k" })
+local turretAttackCooldownUntil = setmetatable({}, { __mode = "k" })
+local activeAttackCount = 0
+local MAX_CONCURRENT = 2
+local MAX_ATTEMPTS = 18
+local MAX_DISTANCE = 250
+local TURRET_ATTACK_RETRY_DELAY = 0.15
+local ATTACK_INTERVAL = 0.045
+
+function bringTurretInFront(turret, hrp)
+    if not turret or not hrp then return end
+    local forward = hrp.CFrame.LookVector
+    local targetPos = hrp.Position + forward * 2.8 + Vector3.new(0, 1.15, 0)
+    local targetCf = CFrame.lookAt(targetPos, targetPos + forward)
+    pcall(function()
+        turret.AssemblyLinearVelocity = Vector3.zero
+        turret.AssemblyAngularVelocity = Vector3.zero
+        turret.CFrame = targetCf
+    end)
+end
+
+function findBat()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local bat = char:FindFirstChild("Bat") or LocalPlayer.Backpack:FindFirstChild("Bat")
+    if bat then return bat end
+    for _, t in ipairs(char:GetChildren()) do
+        if t:IsA("Tool") and t.Name:lower():find("bat") then return t end
+    end
+    for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if t:IsA("Tool") and t.Name:lower():find("bat") then return t end
+    end
+    return nil
+end
+
+function ensureBatEquipped(hum, char)
+    if not hum or not char then return nil end
+    local held = char:FindFirstChildOfClass("Tool")
+    if held and (held.Name == "Bat" or held.Name:lower():find("bat")) then
+        return held
+    end
+    local bat = findBat()
+    if not bat then return nil end
+    pcall(function() hum:EquipTool(bat) end)
+    return char:FindFirstChild("Bat") or bat
+end
+
+function attackTurret(turret)
+    local now = os.clock()
+    if turretAttackBusy[turret] or turretAttackQueued[turret] then return end
+    if activeAttackCount >= MAX_CONCURRENT then return end
+    if not shouldAttackTurret(turret) then return end
+    if (turretAttackCooldownUntil[turret] or 0) > now then return end
+
+    turretAttackQueued[turret] = true
+    turretAttackCooldownUntil[turret] = now + TURRET_ATTACK_RETRY_DELAY
+
+    task.spawn(function()
+        turretAttackQueued[turret] = nil
+        if activeAttackCount >= MAX_CONCURRENT then return end
+        if turretAttackBusy[turret] or not shouldAttackTurret(turret) then return end
+
+        activeAttackCount = activeAttackCount + 1
+        turretAttackBusy[turret] = true
+
+        local ok, err = xpcall(function()
+            local attempts = 0
+            local batReady = false
+            while attempts < MAX_ATTEMPTS and G.AutoDestroyTurret do
+                if not turret or not turret.Parent or not shouldAttackTurret(turret) then break end
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if not hrp or not hum or hum.Health <= 0 then break end
+
+                local okDistance, distance = pcall(function() return (turret.Position - hrp.Position).Magnitude end)
+                if okDistance and distance > MAX_DISTANCE then break end
+
+                setTurretNoClip(turret)
+                bringTurretInFront(turret, hrp)
+
+                local bat
+                if not batReady then
+                    bat = ensureBatEquipped(hum, char)
+                    batReady = bat ~= nil
+                else
+                    bat = char:FindFirstChild("Bat") or findBat()
+                    local held = char:FindFirstChildOfClass("Tool")
+                    if held and held.Name ~= "Bat" and not held.Name:lower():find("bat") then
+                        break
+                    end
+                end
+
+                if bat then
+                    pcall(function() bat:Activate() end)
+                end
+
+                attempts = attempts + 1
+                task.wait(ATTACK_INTERVAL)
+            end
+        end, debug.traceback)
+
+        turretAttackBusy[turret] = nil
+        activeAttackCount = math.max(0, activeAttackCount - 1)
+        if not ok then warn("Hammer destroy error:", err) end
+    end)
+end
+
+Workspace.DescendantAdded:Connect(function(obj)
+    if isEnemyTurret(obj) then setTurretNoClip(obj) end
+    if G.AutoDestroyTurret and shouldAttackTurret(obj) then task.defer(attackTurret, obj) end
+end)
+
+task.spawn(function()
+    while task.wait(0.25) do
+        if G.AutoDestroyTurret then
+            local pending = {}
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if isEnemyTurret(obj) then
+                    setTurretNoClip(obj)
+                    if shouldAttackTurret(obj) and not turretAttackBusy[obj] then
+                        table.insert(pending, obj)
+                    end
+                end
+            end
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and #pending > 0 then
+                table.sort(pending, function(a, b)
+                    local da = (a.Position - hrp.Position).Magnitude
+                    local db = (b.Position - hrp.Position).Magnitude
+                    return da < db
+                end)
+                for i = 1, math.min(MAX_CONCURRENT, #pending) do
+                    attackTurret(pending[i])
+                end
+            end
+        end
+    end
+end)
+
+-- Bat Emoji GUI (ปุ่มค้างคาว 🦇)
+local hammerGui = Instance.new("ScreenGui")
+hammerGui.Name = "HammerCenterBtn"
+hammerGui.ResetOnSpawn = false
+pcall(function() hammerGui.Parent = CoreGui end)
+if not hammerGui.Parent then hammerGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local hammerBtn = Instance.new("TextButton", hammerGui)
+hammerBtn.Name = "HammerButton"
+hammerBtn.Size = UDim2.new(0, 60, 0, 60)
+hammerBtn.Position = UDim2.new(0.5, -30, 0.5, -30)
+hammerBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+hammerBtn.BackgroundTransparency = 0
+hammerBtn.AutoButtonColor = false
+hammerBtn.Text = "🦇"
+hammerBtn.TextSize = 38
+hammerBtn.TextTransparency = 0
+hammerBtn.Font = Enum.Font.FredokaOne
+MakeDraggable(hammerBtn)
+
+local hammerCorner = Instance.new("UICorner", hammerBtn)
+hammerCorner.CornerRadius = UDim.new(0, 16)
+
+local hammerStroke = Instance.new("UIStroke", hammerBtn)
+hammerStroke.Color = Color3.fromRGB(220, 20, 60)
+hammerStroke.Thickness = 2
+
+local function toggleAuto()
+    G.AutoDestroyTurret = not G.AutoDestroyTurret
+    hammerBtn.BackgroundColor3 = G.AutoDestroyTurret and Color3.fromRGB(180, 40, 80) or Color3.fromRGB(0, 0, 0)
+end
+hammerBtn.MouseButton1Click:Connect(toggleAuto)
+
+-- 2. BATMAN TP MODULE
+local pos1CFrame = nil
+local pos2CFrame = nil
+local platform1 = nil
+local platform2 = nil
+
+local currentKeybind = Enum.KeyCode.T
+local isSettingKeybind = false
+
+local function CreateBatMarker(cframe)
+    local part = Instance.new("Part")
+    part.Size = Vector3.new(6, 1, 6)
+    part.CFrame = cframe - Vector3.new(0, 2.5, 0)
+    part.Anchored = true
+    part.CanCollide = true
+    part.Transparency = 1
+    part.Parent = workspace
+
+    local bb = Instance.new("BillboardGui")
+    bb.Size = UDim2.new(0, 100, 0, 100)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop = true
+    bb.Parent = part
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "🦇"
+    label.TextSize = 50
+    label.Font = Enum.Font.FredokaOne
+    label.Parent = bb
+
+    task.spawn(function()
+        local angle = 0
+        while part and part.Parent do
+            angle = (angle + 2) % 360
+            label.Rotation = angle
+            task.wait(0.03)
+        end
+    end)
+
+    return part
+end
+
+local _0xSCREEN = Instance.new("ScreenGui")
+_0xSCREEN.Name = "Batman_TP_UI"
+_0xSCREEN.ResetOnSpawn = false
+pcall(function() _0xSCREEN.Parent = CoreGui end)
+if not _0xSCREEN.Parent then _0xSCREEN.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local _0xMAIN = Instance.new("ImageLabel", _0xSCREEN)
+_0xMAIN.Name = "MainFrame"
+_0xMAIN.Size = UDim2.new(0, 240, 0, 280)
+_0xMAIN.Position = UDim2.new(0.8, -120, 0.5, -140)
+_0xMAIN.BackgroundTransparency = 1                
+_0xMAIN.Image = "rbxassetid://90746158236678"     
+_0xMAIN.ImageTransparency = 0                     
+_0xMAIN.ScaleType = Enum.ScaleType.Stretch        
+_0xMAIN.BorderSizePixel = 0
+MakeDraggable(_0xMAIN)
+
+local mainCorner = Instance.new("UICorner", _0xMAIN)
+mainCorner.CornerRadius = UDim.new(0, 16)
+
+local _0xOVERLAY = Instance.new("Frame", _0xMAIN)
+_0xOVERLAY.Size = UDim2.new(1, 0, 1, 0)
+_0xOVERLAY.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+_0xOVERLAY.BackgroundTransparency = 0.45         
+_0xOVERLAY.BorderSizePixel = 0
+_0xOVERLAY.ZIndex = 1
+Instance.new("UICorner", _0xOVERLAY).CornerRadius = UDim.new(0, 16)
+
+local _0xSTROKE = Instance.new("UIStroke", _0xMAIN)
+_0xSTROKE.Color = Color3.fromRGB(220, 20, 60)
+_0xSTROKE.Thickness = 2.5
+
+local _0xTITLE = Instance.new("TextLabel", _0xMAIN)
+_0xTITLE.Size = UDim2.new(0, 130, 0, 42)
+_0xTITLE.Position = UDim2.new(0, 32, 0, 4)
+_0xTITLE.BackgroundTransparency = 1
+_0xTITLE.Font = Enum.Font.FredokaOne
+_0xTITLE.Text = "🦇Batman TP🦇"
+_0xTITLE.TextSize = 15
+_0xTITLE.TextColor3 = Color3.fromRGB(255, 255, 255)
+_0xTITLE.TextStrokeTransparency = 0.1
+_0xTITLE.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+_0xTITLE.TextXAlignment = Enum.TextXAlignment.Left
+_0xTITLE.ZIndex = 2
+
+task.spawn(function()
+    local h = 0
+    while _0xTITLE and _0xTITLE.Parent do
+        h = (h + 0.005) % 1
+        _0xTITLE.TextColor3 = Color3.fromHSV(h, 1, 1)
+        task.wait(0.03)
+    end
+end)
+
+local _0xSTATS_LABEL = Instance.new("TextLabel", _0xMAIN)
+_0xSTATS_LABEL.Size = UDim2.new(0, 100, 0, 42)
+_0xSTATS_LABEL.Position = UDim2.new(1, -110, 0, 4)
+_0xSTATS_LABEL.BackgroundTransparency = 1
+_0xSTATS_LABEL.Font = Enum.Font.FredokaOne
+_0xSTATS_LABEL.Text = "FPS: 60 | Ping: 0ms"
+_0xSTATS_LABEL.TextSize = 10
+_0xSTATS_LABEL.TextColor3 = Color3.fromRGB(150, 255, 150)
+_0xSTATS_LABEL.TextStrokeTransparency = 0.2
+_0xSTATS_LABEL.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+_0xSTATS_LABEL.TextXAlignment = Enum.TextXAlignment.Right
+_0xSTATS_LABEL.ZIndex = 2
+
+task.spawn(function()
+    local lastTime = os.clock()
+    local frameCount = 0
+    local currentFps = 60
+
+    RunService.RenderStepped:Connect(function()
+        frameCount = frameCount + 1
+        local currentTime = os.clock()
+        if currentTime - lastTime >= 1 then
+            currentFps = frameCount
+            frameCount = 0
+            lastTime = currentTime
+        end
+    end)
+
+    while _0xSTATS_LABEL and _0xSTATS_LABEL.Parent do
+        local ping = 0
+        pcall(function()
+            ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+        end)
+        _0xSTATS_LABEL.Text = string.format("FPS: %d | Ping: %dms", currentFps, ping)
+        
+        if ping < 100 then
+            _0xSTATS_LABEL.TextColor3 = Color3.fromRGB(120, 255, 120)
+        elseif ping < 200 then
+            _0xSTATS_LABEL.TextColor3 = Color3.fromRGB(255, 220, 100)
+        else
+            _0xSTATS_LABEL.TextColor3 = Color3.fromRGB(255, 100, 100)
+        end
+        
+        task.wait(0.5)
+    end
+end)
+
+local _0xLOCK_BTN = Instance.new("TextButton", _0xMAIN)
+_0xLOCK_BTN.Size = UDim2.new(0, 24, 0, 24)
+_0xLOCK_BTN.Position = UDim2.new(0, 8, 0, 8)
+_0xLOCK_BTN.BackgroundTransparency = 1
+_0xLOCK_BTN.Text = "🔓"
+_0xLOCK_BTN.TextColor3 = Color3.fromRGB(255, 255, 255)
+_0xLOCK_BTN.Font = Enum.Font.GothamBold
+_0xLOCK_BTN.TextSize = 14
+_0xLOCK_BTN.ZIndex = 3
+
+local _0xCLOSE = Instance.new("TextButton", _0xMAIN)
+_0xCLOSE.Size = UDim2.new(0, 24, 0, 24)
+_0xCLOSE.Position = UDim2.new(1, -28, 0, 8)
+_0xCLOSE.BackgroundTransparency = 1
+_0xCLOSE.Text = "✖"
+_0xCLOSE.TextColor3 = Color3.fromRGB(255, 60, 60)
+_0xCLOSE.Font = Enum.Font.GothamBold
+_0xCLOSE.TextSize = 16
+_0xCLOSE.ZIndex = 3
+
+_0xLOCK_BTN.MouseButton1Click:Connect(function()
+    uiLocked = not uiLocked
+    _0xLOCK_BTN.Text = uiLocked and "🔒" or "🔓"
+end)
+
+local function _0xCREATE_TEXT_BTN(text, pos, textColor)
+    local btn = Instance.new("TextButton", _0xMAIN)
+    btn.Size = UDim2.new(0, 220, 0, 38)
+    btn.Position = pos
+    btn.BackgroundTransparency = 1
+    btn.Text = text
+    btn.TextColor3 = textColor or Color3.fromRGB(255, 220, 180)
+    btn.Font = Enum.Font.FredokaOne
+    btn.TextSize = 18
+    btn.TextStrokeTransparency = 0.1
+    btn.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    btn.ZIndex = 2
+    return btn
+end
+
+local _0xBTN1 = _0xCREATE_TEXT_BTN("📍 จุด1TP", UDim2.new(0.5, -110, 0, 52), Color3.fromRGB(255, 215, 0))
+local _0xBTN2 = _0xCREATE_TEXT_BTN("📍 จุด2TP", UDim2.new(0.5, -110, 0, 102), Color3.fromRGB(255, 180, 100))
+local _0xBTN3 = _0xCREATE_TEXT_BTN("🧪 กินน้ำยา : OFF", UDim2.new(0.5, -110, 0, 152), Color3.fromRGB(255, 80, 80))
+local _0xBTN4 = _0xCREATE_TEXT_BTN("⚡ TP [" .. currentKeybind.Name .. "]", UDim2.new(0.5, -110, 0, 202), Color3.fromRGB(100, 255, 180))
+
+local _0xAUTOPOT = false
+_0xBTN3.MouseButton1Click:Connect(function()
+    _0xAUTOPOT = not _0xAUTOPOT
+    if _0xAUTOPOT then
+        _0xBTN3.Text = "🧪 กินน้ำยา : ON"
+        _0xBTN3.TextColor3 = Color3.fromRGB(100, 255, 120)
+    else
+        _0xBTN3.Text = "🧪 กินน้ำยา : OFF"
+        _0xBTN3.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+
+local _0xMINI = false
+_0xCLOSE.MouseButton1Click:Connect(function()
+    _0xMINI = not _0xMINI
+    if _0xMINI then
+        _0xBTN1.Visible, _0xBTN2.Visible, _0xBTN3.Visible = false, false, false
+        _0xMAIN.Size = UDim2.new(0, 240, 0, 90)
+        _0xBTN4.Position = UDim2.new(0.5, -110, 0, 42)
+        _0xCLOSE.Text = "➕"
+    else
+        _0xBTN1.Visible, _0xBTN2.Visible, _0xBTN3.Visible = true, true, true
+        _0xMAIN.Size = UDim2.new(0, 240, 0, 280)
+        _0xBTN4.Position = UDim2.new(0.5, -110, 0, 202)
+        _0xCLOSE.Text = "✖"
+    end
+end)
+
+_0xBTN1.MouseButton1Click:Connect(function()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pos1CFrame = hrp.CFrame
+        if platform1 then platform1:Destroy() end
+        platform1 = CreateBatMarker(pos1CFrame)
+        _0xBTN1.Text = "✨ บันทึก จุด1 แล้ว ✨"
+        task.wait(0.8)
+        _0xBTN1.Text = "📍 จุด1TP"
+    end
+end)
+
+_0xBTN2.MouseButton1Click:Connect(function()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pos2CFrame = hrp.CFrame
+        if platform2 then platform2:Destroy() end
+        platform2 = CreateBatMarker(pos2CFrame)
+        _0xBTN2.Text = "✨ บันทึก จุด2 แล้ว ✨"
+        task.wait(0.8)
+        _0xBTN2.Text = "📍 จุด2TP"
+    end
+end)
+
+local function _0xEQUIP_CAR()
+    local char = LocalPlayer.Character
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if not char or not bp then return false end
+    for _,tool in pairs(char:GetChildren()) do
+        if tool:IsA("Tool") then tool.Parent = bp end
+    end
+    for _,tool in pairs(bp:GetChildren()) do
+        if tool:IsA("Tool") and string.find(tool.Name:lower(),"carpet") then
+            tool.Parent = char
+            return true
+        end
+    end
+    return false
+end
+
+local function DO_TELEPORT()
+    if not pos1CFrame or not pos2CFrame then
+        _0xBTN4.Text = "❌ จุดยังไม่ครบ"
+        task.wait(1)
+        _0xBTN4.Text = "⚡ TP [" .. currentKeybind.Name .. "]"
+        return
+    end
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    _0xBTN4.Text = "💫 กำลัง TP..."
+    _0xEQUIP_CAR()
+
+    hrp.AssemblyLinearVelocity = Vector3.zero
+    hrp.CFrame = pos1CFrame
+    task.wait(0.08)
+
+    hrp.AssemblyLinearVelocity = Vector3.zero
+    hrp.CFrame = pos2CFrame
+
+    if _0xAUTOPOT then
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        task.wait(0.1)
+        if bp then
+            for _,tool in pairs(bp:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local n = tool.Name:lower()
+                    if n:find("giant") or n:find("huge") or n:find("gigant") then
+                        tool.Parent = LocalPlayer.Character
+                        task.wait(0.1)
+                        tool:Activate()
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    task.wait(0.4)
+    _0xBTN4.Text = "⚡ TP [" .. currentKeybind.Name .. "]"
+end
+
+_0xBTN4.MouseButton1Click:Connect(function()
+    if not isSettingKeybind then DO_TELEPORT() end
+end)
+
+_0xBTN4.MouseButton2Click:Connect(function()
+    if not isSettingKeybind then
+        isSettingKeybind = true
+        _0xBTN4.Text = "🦇 กดปุ่มใหม่..."
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if isSettingKeybind and input.UserInputType == Enum.UserInputType.Keyboard then
+        currentKeybind = input.KeyCode
+        isSettingKeybind = false
+        _0xBTN4.Text = "⚡ TP [" .. currentKeybind.Name .. "]"
+        return
+    end
+    if input.KeyCode == currentKeybind and not isSettingKeybind then
+        DO_TELEPORT()
+    end
+end)
